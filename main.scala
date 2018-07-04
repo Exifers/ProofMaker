@@ -1,15 +1,24 @@
 
 object Main extends App {
+  if (args.length !=2) {
+    println("Usage: scala MyProver '<formula1>' '<formula2>'")
+    sys.exit(1)
+  }
   var parser: Parser = null
   var leftTree: Node = null
   var rightTree: Node = null
-  parser = new Parser(scala.io.StdIn.readLine())//args(0))
+  parser = new Parser(args(0))
   leftTree = parser.parseFormula()
-  parser = new Parser(scala.io.StdIn.readLine())//args(1))
+  parser = new Parser(args(1))
   rightTree = parser.parseFormula()
 
   var prover: Prover = new Prover(List(leftTree), List(rightTree))
-  println(prover.run)
+  if(prover.run) {
+    println("provable")
+  }
+  else {
+    println("not provable")
+  }
 }
 
 /* === Prover === */
@@ -57,13 +66,13 @@ class Prover(var leftTrees: List[Node], var rightTrees: List[Node]) {
       for (ast <- rhs) {
         if (ast.isInstanceOf[OpNode]) {
           if (ast.asInstanceOf[OpNode].opType == OpType.AND) {
-            return (reduceLeftAnd, null)
+            return reduceRightAnd
           }
           else if (ast.asInstanceOf[OpNode].opType == OpType.OR) {
-            return reduceLeftOr
+            return (reduceRightOr, null)
           }
           else if (ast.asInstanceOf[OpNode].opType == OpType.NOT) {
-            return (reduceLeftNot, null)
+            return (reduceRightNot, null)
           }
         }
       }
@@ -116,38 +125,61 @@ class Prover(var leftTrees: List[Node], var rightTrees: List[Node]) {
     false
   }
 
+  def dump = {
+    for(ast <- lhs) {
+      ast.dump
+      print(", ")
+    }
+    print(" |- ")
+    for (ast <- rhs) {
+      ast.dump
+      print(", ")
+    }
+    println("")
+  }
+
   /* Inference rules below : */
   def reduceRightNot: Prover = {
-    val firstNot: OpNode = getFirstNot(rhs)
+    val firstNot: OpNode = getFirstOfType(rhs, OpType.NOT)
     val newRhs: List[Node] = rhs.filter(_ != firstNot)
     val newLhs: List[Node] = lhs :+ firstNot.leftChild
     return new Prover(newLhs, newRhs)
   }
   def reduceLeftNot: Prover = {
-    val firstNot: OpNode = getFirstNot(lhs)
+    val firstNot: OpNode = getFirstOfType(lhs, OpType.NOT)
     val newLhs: List[Node] = lhs.filter(_ != firstNot)
     val newRhs: List[Node] = rhs :+ firstNot.leftChild
     return new Prover(newLhs, newRhs)
   }
   def reduceRightAnd: (Prover, Prover) = {
-    var firstAnd: OpNode = getFirstAnd(rhs)
-    return (null, null)
+    val firstAnd: OpNode = getFirstOfType(rhs, OpType.AND)
+    val newLhs: List[Node] = lhs
+    val newRhs1: List[Node] = rhs.filter(_ != firstAnd) :+ firstAnd.leftChild
+    val newRhs2: List[Node] = rhs.filter(_ != firstAnd) :+ firstAnd.rightChild
+    return (new Prover(newLhs, newRhs1), new Prover(newLhs, newRhs2))
   }
   def reduceLeftAnd: Prover = {
-    return null
+    val firstAnd: OpNode = getFirstOfType(lhs, OpType.AND)
+    val newLhs: List[Node] = lhs.filter(_ != firstAnd) :+ firstAnd.leftChild :+ firstAnd.rightChild
+    return new Prover(newLhs, rhs)
   }
   def reduceRightOr: Prover = {
-    return null
+    val firstOr: OpNode = getFirstOfType(rhs, OpType.OR)
+    val newRhs: List[Node] = rhs.filter(_ != firstOr) :+ firstOr.leftChild :+ firstOr.rightChild
+    return new Prover(lhs, newRhs)
   }
   def reduceLeftOr: (Prover, Prover) = {
-    return (null, null)
+    val firstOr: OpNode = getFirstOfType(lhs, OpType.OR)
+    val newLhs1: List[Node] = lhs.filter(_ != firstOr) :+ firstOr.leftChild
+    val newLhs2: List[Node] = lhs.filter(_ != firstOr) :+ firstOr.rightChild
+    return (new Prover(newLhs1, rhs), new Prover(newLhs2, rhs))
   }
 
-  def getFirstNot(nodes: List[Node]): OpNode = {
+  def getFirstOfType(nodes: List[Node], nodeType: OpType.OpType): OpNode = {
     for (node <- nodes) {
       if (node.isInstanceOf[OpNode]) {
-        if (node.asInstanceOf[OpNode].opType == OpType.NOT)
-          return node
+        if (node.asInstanceOf[OpNode].opType == nodeType)
+          return node.asInstanceOf[OpNode]
       }
     }
     null
@@ -155,9 +187,19 @@ class Prover(var leftTrees: List[Node], var rightTrees: List[Node]) {
 }
 
 /* === AST === */
-class Node {}
+abstract class Node {
+  def dump
+}
 
 class OpNode(var leftChild: Node, var rightChild: Node, var opType: OpType.OpType) extends Node {
+  override def dump: Unit = {
+    print("(")
+    leftChild.dump
+    print(opType)
+    if (rightChild != null)
+      rightChild.dump
+    print(")")
+  }
 }
 
 object OpType extends Enumeration {
@@ -166,6 +208,7 @@ object OpType extends Enumeration {
 }
 
 class VariableNode(var c: Char) extends Node {
+  override def dump: Unit = print(c)
 }
 
 /* === Parser === */
